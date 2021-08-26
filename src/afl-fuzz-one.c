@@ -84,24 +84,24 @@ static inline u32 choose_block_len(afl_state_t *afl, u32 limit) {
 
     case 0:
       min_value = 1;
-      max_value = HAVOC_BLK_SMALL;
+      max_value = afl->custom_havoc_blk_small;
       break;
 
     case 1:
-      min_value = HAVOC_BLK_SMALL;
-      max_value = HAVOC_BLK_MEDIUM;
+      min_value = afl->custom_havoc_blk_small;
+      max_value = afl->custom_havok_blk_medium;
       break;
 
     default:
 
       if (likely(rand_below(afl, 10))) {
 
-        min_value = HAVOC_BLK_MEDIUM;
-        max_value = HAVOC_BLK_LARGE;
+        min_value = afl->custom_havok_blk_medium;
+        max_value = afl->custom_havoc_blk_large;
 
       } else {
 
-        min_value = HAVOC_BLK_LARGE;
+        min_value = afl->custom_havoc_blk_large;
         max_value = HAVOC_BLK_XL;
 
       }
@@ -1798,7 +1798,7 @@ custom_mutator_stage:
 
   afl->stage_name = "custom mutator";
   afl->stage_short = "custom";
-  afl->stage_max = HAVOC_CYCLES * perf_score / afl->havoc_div / 100;
+  afl->stage_max = afl->custom_havoc_cycles * perf_score / afl->havoc_div / 100;
   afl->stage_val_type = STAGE_VAL_NONE;
   bool has_custom_fuzz = false;
 
@@ -1954,7 +1954,7 @@ havoc_stage:
 
     afl->stage_name = "havoc";
     afl->stage_short = "havoc";
-    afl->stage_max = (doing_det ? HAVOC_CYCLES_INIT : HAVOC_CYCLES) *
+    afl->stage_max = (doing_det ? HAVOC_CYCLES_INIT : afl->custom_havoc_cycles) *
                      perf_score / afl->havoc_div / 100;
 
   } else {
@@ -1964,7 +1964,7 @@ havoc_stage:
     snprintf(afl->stage_name_buf, STAGE_BUF_SIZE, "splice %u", splice_cycle);
     afl->stage_name = afl->stage_name_buf;
     afl->stage_short = "splice";
-    afl->stage_max = SPLICE_HAVOC * perf_score / afl->havoc_div / 100;
+    afl->stage_max = afl->custom_splice_havoc * perf_score / afl->havoc_div / 100;
 
   }
 
@@ -2029,7 +2029,7 @@ havoc_stage:
 
   for (afl->stage_cur = 0; afl->stage_cur < afl->stage_max; ++afl->stage_cur) {
 
-    u32 use_stacking = 1 << (1 + rand_below(afl, afl->havoc_stack_pow2));
+    u32 use_stacking = 1 << (1 + rand_below(afl, afl->custom_havoc_stack_pow2));
 
     afl->stage_cur_val = use_stacking;
 
@@ -2786,7 +2786,7 @@ havoc_stage:
 
 retry_splicing:
 
-  if (afl->use_splicing && splice_cycle++ < SPLICE_CYCLES &&
+  if (afl->use_splicing && splice_cycle++ < afl->custom_splice_cycles &&
       afl->ready_for_splicing_count > 1 && afl->queue_cur->len >= 4) {
 
     struct queue_entry *target;
@@ -2881,6 +2881,26 @@ abandon_entry:
 
 }
 
+static void reset_fuzzing_params(afl_state_t * afl) {
+  afl->custom_havoc_cycles       = HAVOC_CYCLES;
+  afl->custom_havoc_stack_pow2   = HAVOC_STACK_POW2;
+  afl->custom_havoc_blk_small    = HAVOC_BLK_SMALL;
+  afl->custom_havok_blk_medium   = HAVOC_BLK_MEDIUM;
+  afl->custom_havoc_blk_large    = HAVOC_BLK_LARGE;
+  afl->custom_splice_cycles      = SPLICE_CYCLES;
+  afl->custom_splice_havoc       = SPLICE_HAVOC;
+}
+
+static void randomize_fuzzing_params(afl_state_t * afl) {
+  afl->custom_havoc_cycles       = rand_int_in_range(afl, 192, 320);
+  afl->custom_havoc_stack_pow2   = rand_int_in_range(afl, 4, 10);
+  afl->custom_havoc_blk_small    = rand_int_in_range(afl, 24, 40);
+  afl->custom_havok_blk_medium   = rand_int_in_range(afl, 96, 160);
+  afl->custom_havoc_blk_large    = rand_int_in_range(afl, 1000, 2000);
+  afl->custom_splice_cycles      = rand_int_in_range(afl, 10, 20);
+  afl->custom_splice_havoc       = rand_int_in_range(afl, 24, 40);
+}
+
 /* MOpt mode */
 static u8 mopt_common_fuzzing(afl_state_t *afl, MOpt_globals_t MOpt_globals) {
 
@@ -2906,6 +2926,10 @@ static u8 mopt_common_fuzzing(afl_state_t *afl, MOpt_globals_t MOpt_globals) {
 
   u8  a_collect[MAX_AUTO_EXTRA];
   u32 a_len = 0;
+
+  // only fuzz selected inputs from our custom selection algorithm 
+  if (!afl->disable_weighted_random_selection && !afl->queue_cur->is_selected)
+    return 1;
 
 #ifdef IGNORE_FINDS
 
@@ -2959,6 +2983,18 @@ static u8 mopt_common_fuzzing(afl_state_t *afl, MOpt_globals_t MOpt_globals) {
          afl->current_entry, afl->queued_paths, afl->unique_crashes);
     fflush(stdout);
 
+  }
+
+
+  // assign probability based on frequncy that the seed was chosen
+  if (!afl->disable_randomized_fuzzing_params) {
+    // randomize fuzzing params with probabilities
+    int multiplier = afl->queue_cur->num_fuzzed ? ((int)(afl->queue_cur->num_fuzzed/5000.0)) + 1: 0;
+    afl->randomize_parameters_prob = MIN(MAX(multiplier * 5, 5), 75);
+    if (rand_below(afl, 100) < afl->randomize_parameters_prob)
+      randomize_fuzzing_params(afl);
+    else
+      reset_fuzzing_params(afl);
   }
 
   /* Map the test case into memory. */
@@ -4298,7 +4334,7 @@ pacemaker_fuzzing:
 
     afl->stage_name = MOpt_globals.havoc_stagename;
     afl->stage_short = MOpt_globals.havoc_stagenameshort;
-    afl->stage_max = (doing_det ? HAVOC_CYCLES_INIT : HAVOC_CYCLES) *
+    afl->stage_max = (doing_det ? HAVOC_CYCLES_INIT : afl->custom_havoc_cycles) *
                      perf_score / afl->havoc_div / 100;
 
   } else {
@@ -4309,7 +4345,7 @@ pacemaker_fuzzing:
              MOpt_globals.splice_stageformat, splice_cycle);
     afl->stage_name = afl->stage_name_buf;
     afl->stage_short = MOpt_globals.splice_stagenameshort;
-    afl->stage_max = SPLICE_HAVOC * perf_score / afl->havoc_div / 100;
+    afl->stage_max = afl->custom_splice_havoc * perf_score / afl->havoc_div / 100;
 
   }
 
@@ -4349,7 +4385,7 @@ pacemaker_fuzzing:
 
         afl->stage_name = MOpt_globals.havoc_stagename;
         afl->stage_short = MOpt_globals.havoc_stagenameshort;
-        afl->stage_max = (doing_det ? HAVOC_CYCLES_INIT : HAVOC_CYCLES) *
+        afl->stage_max = (doing_det ? HAVOC_CYCLES_INIT : afl->custom_havoc_cycles) *
                          perf_score / afl->havoc_div / 100;
 
       } else {
@@ -4359,7 +4395,7 @@ pacemaker_fuzzing:
                  MOpt_globals.splice_stageformat, splice_cycle);
         afl->stage_name = afl->stage_name_buf;
         afl->stage_short = MOpt_globals.splice_stagenameshort;
-        afl->stage_max = SPLICE_HAVOC * perf_score / afl->havoc_div / 100;
+        afl->stage_max = afl->custom_splice_havoc * perf_score / afl->havoc_div / 100;
 
       }
 

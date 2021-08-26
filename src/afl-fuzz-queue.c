@@ -439,6 +439,7 @@ void add_to_queue(afl_state_t *afl, u8 *fname, u32 len, u8 passed_det) {
   q->trace_mini = NULL;
   q->testcase_buf = NULL;
   q->mother = afl->queue_cur;
+  q->num_fuzzed   = 0;
 
 #ifdef INTROSPECTION
   q->bitsmap_size = afl->bitsmap_size;
@@ -523,6 +524,23 @@ void update_bitmap_score(afl_state_t *afl, struct queue_entry *q) {
   u32 i;
   u64 fav_factor;
   u64 fuzz_p2;
+
+  // this overides how afl tracks score for favorite input selection
+  if (!afl->disable_random_favorites) {
+    for (i = 0; i < MAP_SIZE; i++) {
+      if (afl->fsrv.trace_bits[i]) {
+
+      // insert a new element of input into a linked list for current edge id
+      struct potential_favored_input* new_potential = ck_alloc(sizeof(struct potential_favored_input));
+      new_potential->queue = q;
+      new_potential->next = afl->potential_favored_list[i];
+
+      afl->potential_favored_list[i] = new_potential;
+      afl->score_changed = 1;
+      }
+    }
+    return;
+  }
 
   if (unlikely(afl->schedule >= FAST && afl->schedule < RARE))
     fuzz_p2 = 0;  // Skip the fuzz_p2 comparison
@@ -648,47 +666,120 @@ void cull_queue(afl_state_t *afl) {
   afl->queued_favored = 0;
   afl->pending_favored = 0;
 
-  for (i = 0; i < afl->queued_paths; i++) {
+    // use AFL's original mechanism to assign favorites
+  if (afl->disable_random_favorites) {
 
-    afl->queue_buf[i]->favored = 0;
+    for (i = 0; i < afl->queued_paths; i++) {
 
-  }
+      if (afl->disable_afl_default_favorites) {
+          afl->queue_buf[i]->favored = 1;
+        } else{
+          afl->queue_buf[i]->favored = 0;
+        }
 
-  /* Let's see if anything in the bitmap isn't captured in temp_v.
-     If yes, and if it has a afl->top_rated[] contender, let's use it. */
+    }
 
-  for (i = 0; i < afl->fsrv.map_size; ++i) {
+    /* Let's see if anything in the bitmap isn't captured in temp_v.
+      If yes, and if it has a afl->top_rated[] contender, let's use it. */
 
-    if (afl->top_rated[i] && (temp_v[i >> 3] & (1 << (i & 7)))) {
+    for (i = 0; i < afl->fsrv.map_size; ++i) {
 
-      u32 j = len;
+      if (afl->top_rated[i] && (temp_v[i >> 3] & (1 << (i & 7)))) {
 
-      /* Remove all bits belonging to the current entry from temp_v. */
+        u32 j = len;
 
-      while (j--) {
+        /* Remove all bits belonging to the current entry from temp_v. */
 
-        if (afl->top_rated[i]->trace_mini[j]) {
+        while (j--) {
 
-          temp_v[j] &= ~afl->top_rated[i]->trace_mini[j];
+          if (afl->top_rated[i]->trace_mini[j]) {
+
+            temp_v[j] &= ~afl->top_rated[i]->trace_mini[j];
+
+          }
+
+        }
+
+        if (!afl->top_rated[i]->favored) {
+
+          afl->top_rated[i]->favored = 1;
+          ++afl->queued_favored;
+
+          if (afl->top_rated[i]->fuzz_level == 0 ||
+              !afl->top_rated[i]->was_fuzzed) {
+
+            ++afl->pending_favored;
+
+          }
 
         }
 
       }
 
-      if (!afl->top_rated[i]->favored) {
+    }
+  } else {
+    // otherwise, randomly assign favorites
+    int r;
+    int rid;
+    double weight;
 
-        afl->top_rated[i]->favored = 1;
-        ++afl->queued_favored;
+    for (i = 0; i < afl->queued_paths; i++) {
+      weight = 1.0;
+      if (!afl->enable_uniformly_random_favorites) {
+        // enable_boost_inputs
+        double base_weight_fac_boost_inputs = 1.0;
+        double max_weight_fac_incr = 7.0;
+        double scale_fac_boost_inputs = 0.001;
+        double num_selections = (double)afl->queue_buf[i]->num_fuzzed;
+        weight *= base_weight_fac_boost_inputs + max_weight_fac_incr / (scale_fac_boost_inputs * num_selections + 1.0);
 
-        if (afl->top_rated[i]->fuzz_level == 0 ||
-            !afl->top_rated[i]->was_fuzzed) {
-
-          ++afl->pending_favored;
-
-        }
-
+        // enable_boost_fast_seqs
+        double base_weight_fac_boost_fast = 8.0;
+        double max_weight_fac_decr = 7.0;
+        double scale_fac_boost_fast = 0.005;
+        double execs_per_sec = 1000000.0 / (double)afl->queue_buf[i]->exec_us;
+        weight *= base_weight_fac_boost_fast - max_weight_fac_decr / (scale_fac_boost_fast*execs_per_sec + 1.0);
+      }
+      r = 0;
+      rid = INT_MAX;
+      while (weight >= 1.0) {
+        r = rand_below(afl, INT_MAX);
+        if (r < rid)
+          rid = r;
+        weight -= 1.0;
+      }
+      if (weight > 0.0 && weight > rand_double(afl)) {
+        r = rand_below(afl, INT_MAX);
+        if (r < rid)
+          rid = r;
       }
 
+      afl->queue_buf[i]->favored = 0;
+      afl->queue_buf[i]->rand = rid;
+    }
+
+    for (i = 0; i < MAP_SIZE; i++) {
+      if (afl->potential_favored_list[i]) {
+        struct potential_favored_input* potential_input = afl->potential_favored_list[i];
+        struct queue_entry* new_top_rated;
+        int minimum_random_number = INT_MAX;
+
+        while (potential_input) {
+          // if the random is the new minimum, the seed is favored
+          if (potential_input->queue->rand < minimum_random_number) {
+            minimum_random_number = potential_input->queue->rand;
+            new_top_rated = potential_input->queue;
+          }
+          potential_input = potential_input->next;
+        }
+
+        if (new_top_rated && !new_top_rated->favored) {
+          new_top_rated->favored = 1;
+          afl->queued_favored++;
+          if (!new_top_rated->was_fuzzed)
+            afl->pending_favored++;
+        }
+      }
     }
 
   }

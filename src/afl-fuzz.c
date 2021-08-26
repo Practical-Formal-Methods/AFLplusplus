@@ -334,6 +334,72 @@ static int stricmp(char const *a, char const *b) {
 
 }
 
+double rand_double(afl_state_t * afl) 
+{
+  // return random value in interval [0.0,1.0)
+  double rnd = (double)rand_below(afl, RAND_MAX);
+  double max = (double)RAND_MAX;
+  return rnd / max;
+}
+
+u32 rand_int_in_range(afl_state_t * afl, int low, int high) {
+    int range = high - low + 1;
+    return (u32)(low + rand_below(afl, range));
+}
+
+// find the first element in array that is greater or equal target
+int first_greater_element(double arr[], double target, int end)
+{
+    int lo = 0;
+    int hi = end;
+    while (lo < hi) {
+      int mid = lo + ((hi - lo) / 2);
+      if (target < arr[mid]) {
+        hi = mid;
+      } else {
+        lo = mid + 1;
+      }
+    }
+    return lo;
+}
+
+static void mark_selected_inputs(afl_state_t * afl) {
+  double cumulative_sum[afl->queued_paths];
+  double total_weight = 0.0;  
+  struct queue_entry* queue_list[afl->queued_paths];
+
+  int idx = 0;
+  u32 i;
+  // generate weight for each input and sum into an array
+  for (i = 0; i < afl->queued_paths; i++) {
+    double w = 1.0;
+    if (afl->queue_buf[i]->favored) {
+      w *= 20.0;
+    } else if (!afl->queue_buf[i]->was_fuzzed) {
+      w *= 1.0; // based on the experiments, 1.0 outperforms 5.0 (which is the original probabilities to fuzz brand new inputs in AFL)
+    }
+
+    afl->queue_buf[i]->is_selected = 0; // reset flag from previous cycle
+    total_weight += w;
+    queue_list[idx] = afl->queue_buf[i];
+    cumulative_sum[idx] = total_weight;
+    idx++;
+  }
+
+  int total_selected = 0;
+  while (total_selected < 64) {
+    // find random number and search this number in the array
+    double r = rand_double(afl) * total_weight; 
+    int seed_idx = first_greater_element(cumulative_sum, r, afl->queued_paths);
+    if (queue_list[seed_idx]->is_selected)
+      break;
+
+    queue_list[seed_idx]->is_selected = 1;
+    total_selected++;
+  }
+
+}
+
 static void fasan_check_afl_preload(char *afl_preload) {
 
   char   first_preload[PATH_MAX + 1] = {0};
@@ -1278,6 +1344,17 @@ int main(int argc, char **argv_orig, char **envp) {
   if (get_afl_env("AFL_NO_ARITH")) { afl->no_arith = 1; }
   if (get_afl_env("AFL_SHUFFLE_QUEUE")) { afl->shuffle_queue = 1; }
   if (get_afl_env("AFL_EXPAND_HAVOC_NOW")) { afl->expand_havoc = 1; }
+  
+  // AFL random params
+  if (getenv("AFL_DISABLE_WRS"))      afl->disable_weighted_random_selection   = 1;
+  if (getenv("AFL_DISABLE_RF"))       afl->disable_random_favorites            = 1;
+  if (getenv("AFL_ENABLE_UF"))        afl->enable_uniformly_random_favorites   = 1;
+  if (getenv("AFL_DISABLE_FAVS"))     afl->disable_afl_default_favorites       = 1;
+  if (getenv("AFL_DISABLE_RP"))       afl->disable_randomized_fuzzing_params   = 1;
+
+  if (getenv("AFL_RP_PROB")) {
+    afl->randomize_parameters_prob = strtoul(getenv("AFL_RP_PROB"), 0L, 10);
+  } 
 
   if (afl->afl_env.afl_autoresume) {
 
@@ -2004,6 +2081,9 @@ int main(int argc, char **argv_orig, char **envp) {
         }
 
       }
+
+      if (!afl->disable_weighted_random_selection)
+        mark_selected_inputs(afl);
 
       if (unlikely(afl->not_on_tty)) {
 

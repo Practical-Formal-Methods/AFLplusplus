@@ -149,6 +149,10 @@ struct tainted {
 
 };
 
+struct potential_favored_input {
+  struct queue_entry *queue;
+  struct potential_favored_input *next;
+};
 struct queue_entry {
 
   u8 *fname;                            /* File name for the test case      */
@@ -165,7 +169,8 @@ struct queue_entry {
       favored,                          /* Currently favored?               */
       fs_redundant,                     /* Marked as redundant in the fs?   */
       is_ascii,                         /* Is the input just ascii text?    */
-      disabled;                         /* Is disabled from fuzz selection  */
+      disabled,                         /* Is disabled from fuzz selection  */
+      is_selected;
 
   u32 bitmap_size,                      /* Number of bits set in bitmap     */
       fuzz_level,                       /* Number of fuzzing iterations     */
@@ -174,7 +179,9 @@ struct queue_entry {
   u64 exec_us,                          /* Execution time (us)              */
       handicap,                         /* Number of queue cycles behind    */
       depth,                            /* Path depth                       */
-      exec_cksum;                       /* Checksum of the execution trace  */
+      exec_cksum,                       /* Checksum of the execution trace  */
+      rand,
+      num_fuzzed;
 
   u8 *trace_mini;                       /* Trace bytes, if kept             */
   u32 tc_ref;                           /* Trace bytes ref count            */
@@ -191,7 +198,7 @@ struct queue_entry {
   u8 *            cmplog_colorinput;    /* the result buf of colorization   */
   struct tainted *taint;                /* Taint information from CmpLog    */
 
-  struct queue_entry *mother;           /* queue entry this based on        */
+  struct queue_entry *mother;           /* queue entry this based on        */  
 
 };
 
@@ -202,6 +209,8 @@ struct extra_data {
   u32 hit_cnt;                          /* Use count in the corpus          */
 
 };
+
+
 
 struct auto_extra_data {
 
@@ -519,7 +528,12 @@ typedef struct afl_state {
       expand_havoc,                /* perform expensive havoc after no find */
       cycle_schedules,                  /* cycle power schedules?           */
       old_seed_selection,               /* use vanilla afl seed selection   */
-      reinit_table;                     /* reinit the queue weight table    */
+      reinit_table,                     /* reinit the queue weight table    */
+      disable_weighted_random_selection,
+      disable_random_favorites,
+      enable_uniformly_random_favorites,
+      disable_afl_default_favorites,
+      disable_randomized_fuzzing_params;
 
   u8 *virgin_bits,                      /* Regions yet untouched by fuzzing */
       *virgin_tmout,                    /* Bits we haven't seen in tmouts   */
@@ -630,6 +644,8 @@ typedef struct afl_state {
 
   struct extra_data *extras;            /* Extra tokens to fuzz with        */
   u32                extras_cnt;        /* Total number of tokens read      */
+
+  struct potential_favored_input* potential_favored_list[MAP_SIZE];
 
   struct auto_extra_data
       a_extras[MAX_AUTO_EXTRAS];        /* Automatically selected extras    */
@@ -751,6 +767,17 @@ typedef struct afl_state {
    * is too large) */
   struct queue_entry **q_testcase_cache;
 
+  int  randomize_parameters_prob;
+
+  /* list of fuzzing parameter constants found in config.h */
+  u32 custom_havoc_cycles;
+  u32 custom_havoc_stack_pow2;
+  u32 custom_havoc_blk_small;
+  u32 custom_havok_blk_medium;
+  u32 custom_havoc_blk_large;
+  u32 custom_splice_cycles;
+  u32 custom_splice_havoc;
+
 #ifdef INTROSPECTION
   char  mutation[8072];
   char  m_tmp[4096];
@@ -759,6 +786,8 @@ typedef struct afl_state {
 #endif
 
 } afl_state_t;
+
+
 
 struct custom_mutator {
 
@@ -1037,6 +1066,10 @@ void destroy_queue(afl_state_t *);
 void update_bitmap_score(afl_state_t *, struct queue_entry *);
 void cull_queue(afl_state_t *);
 u32  calculate_score(afl_state_t *, struct queue_entry *);
+
+/* random_params */
+u32 rand_int_in_range(afl_state_t * afl, int low, int high);
+double rand_double(afl_state_t * afl) ;
 
 /* Bitmap */
 
