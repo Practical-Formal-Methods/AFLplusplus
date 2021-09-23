@@ -1354,13 +1354,7 @@ int main(int argc, char **argv_orig, char **envp) {
 
   // initialize with default values if we don't want to radomize ruzzing params
   if (afl->disable_randomized_fuzzing_params) {
-    afl->custom_havoc_cycles       = HAVOC_CYCLES;
-    afl->custom_havoc_stack_pow2   = HAVOC_STACK_POW2;
-    afl->custom_havoc_blk_small    = HAVOC_BLK_SMALL;
-    afl->custom_havok_blk_medium   = HAVOC_BLK_MEDIUM;
-    afl->custom_havoc_blk_large    = HAVOC_BLK_LARGE;
-    afl->custom_splice_cycles      = SPLICE_CYCLES;
-    afl->custom_splice_havoc       = SPLICE_HAVOC;
+    reset_fuzzing_params(afl);
   }
 
   if (getenv("AFL_RP_PROB")) {

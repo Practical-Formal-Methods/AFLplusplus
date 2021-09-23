@@ -1137,6 +1137,8 @@ u8   pilot_fuzzing(afl_state_t *);
 u8   core_fuzzing(afl_state_t *);
 void pso_updating(afl_state_t *);
 u8   fuzz_one(afl_state_t *);
+void reset_fuzzing_params(afl_state_t * afl);
+void randomize_fuzzing_params(afl_state_t * afl);
 
 /* Init */
 

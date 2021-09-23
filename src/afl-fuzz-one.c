@@ -2881,7 +2881,7 @@ abandon_entry:
 
 }
 
-static void reset_fuzzing_params(afl_state_t * afl) {
+void reset_fuzzing_params(afl_state_t * afl) {
   afl->custom_havoc_cycles       = HAVOC_CYCLES;
   afl->custom_havoc_stack_pow2   = HAVOC_STACK_POW2;
   afl->custom_havoc_blk_small    = HAVOC_BLK_SMALL;
@@ -2891,7 +2891,7 @@ static void reset_fuzzing_params(afl_state_t * afl) {
   afl->custom_splice_havoc       = SPLICE_HAVOC;
 }
 
-static void randomize_fuzzing_params(afl_state_t * afl) {
+void randomize_fuzzing_params(afl_state_t * afl) {
   afl->custom_havoc_cycles       = rand_int_in_range(afl, 192, 320);
   afl->custom_havoc_stack_pow2   = rand_int_in_range(afl, 4, 10);
   afl->custom_havoc_blk_small    = rand_int_in_range(afl, 24, 40);
