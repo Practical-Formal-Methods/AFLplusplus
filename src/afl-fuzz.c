@@ -1352,6 +1352,17 @@ int main(int argc, char **argv_orig, char **envp) {
   if (getenv("AFL_DISABLE_FAVS"))     afl->disable_afl_default_favorites       = 1;
   if (getenv("AFL_DISABLE_RP"))       afl->disable_randomized_fuzzing_params   = 1;
 
+  // initialize with default values if we don't want to radomize ruzzing params
+  if (afl->disable_randomized_fuzzing_params) {
+    afl->custom_havoc_cycles       = HAVOC_CYCLES;
+    afl->custom_havoc_stack_pow2   = HAVOC_STACK_POW2;
+    afl->custom_havoc_blk_small    = HAVOC_BLK_SMALL;
+    afl->custom_havok_blk_medium   = HAVOC_BLK_MEDIUM;
+    afl->custom_havoc_blk_large    = HAVOC_BLK_LARGE;
+    afl->custom_splice_cycles      = SPLICE_CYCLES;
+    afl->custom_splice_havoc       = SPLICE_HAVOC;
+  }
+
   if (getenv("AFL_RP_PROB")) {
     afl->randomize_parameters_prob = strtoul(getenv("AFL_RP_PROB"), 0L, 10);
   } 
