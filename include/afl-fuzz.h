@@ -149,10 +149,6 @@ struct tainted {
 
 };
 
-struct potential_favored_input {
-  struct queue_entry *queue;
-  struct potential_favored_input *next;
-};
 struct queue_entry {
 
   u8 *fname;                            /* File name for the test case      */
@@ -198,7 +194,7 @@ struct queue_entry {
   u8 *            cmplog_colorinput;    /* the result buf of colorization   */
   struct tainted *taint;                /* Taint information from CmpLog    */
 
-  struct queue_entry *mother;           /* queue entry this based on        */  
+  struct queue_entry *mother;           /* queue entry this based on        */
 
 };
 
@@ -209,8 +205,6 @@ struct extra_data {
   u32 hit_cnt;                          /* Use count in the corpus          */
 
 };
-
-
 
 struct auto_extra_data {
 
@@ -645,7 +639,7 @@ typedef struct afl_state {
   struct extra_data *extras;            /* Extra tokens to fuzz with        */
   u32                extras_cnt;        /* Total number of tokens read      */
 
-  struct potential_favored_input* potential_favored_list[MAP_SIZE];
+  struct queue_entry* edge_to_minimum_entry[MAP_SIZE];
 
   struct auto_extra_data
       a_extras[MAX_AUTO_EXTRAS];        /* Automatically selected extras    */
@@ -786,8 +780,6 @@ typedef struct afl_state {
 #endif
 
 } afl_state_t;
-
-
 
 struct custom_mutator {
 

@@ -525,23 +525,6 @@ void update_bitmap_score(afl_state_t *afl, struct queue_entry *q) {
   u64 fav_factor;
   u64 fuzz_p2;
 
-  // this overides how afl tracks score for favorite input selection
-  if (!afl->disable_random_favorites) {
-    for (i = 0; i < MAP_SIZE; i++) {
-      if (afl->fsrv.trace_bits[i]) {
-
-      // insert a new element of input into a linked list for current edge id
-      struct potential_favored_input* new_potential = ck_alloc(sizeof(struct potential_favored_input));
-      new_potential->queue = q;
-      new_potential->next = afl->potential_favored_list[i];
-
-      afl->potential_favored_list[i] = new_potential;
-      afl->score_changed = 1;
-      }
-    }
-    return;
-  }
-
   if (unlikely(afl->schedule >= FAST && afl->schedule < RARE))
     fuzz_p2 = 0;  // Skip the fuzz_p2 comparison
   else if (unlikely(afl->schedule == RARE))
@@ -656,7 +639,7 @@ void cull_queue(afl_state_t *afl) {
   if (likely(!afl->score_changed || afl->non_instrumented_mode)) { return; }
 
   u32 len = (afl->fsrv.map_size >> 3);
-  u32 i;
+  u32 i, j;
   u8 *temp_v = afl->map_tmp_buf;
 
   afl->score_changed = 0;
@@ -758,34 +741,33 @@ void cull_queue(afl_state_t *afl) {
       afl->queue_buf[i]->rand = rid;
     }
 
-    for (i = 0; i < MAP_SIZE; i++) {
-      if (afl->potential_favored_list[i]) {
-        struct potential_favored_input* potential_input = afl->potential_favored_list[i];
-        struct queue_entry* new_top_rated;
-        int minimum_random_number = INT_MAX;
+    // reset findings from the previous cycle
+    memset(afl->edge_to_minimum_entry, 0, afl->fsrv.map_size * sizeof(struct queue_entry));
 
-        while (potential_input) {
-          // if the random is the new minimum, the seed is favored
-          if (potential_input->queue->rand < minimum_random_number) {
-            minimum_random_number = potential_input->queue->rand;
-            new_top_rated = potential_input->queue;
+    // going through all entries, iteratvely check for covered edges and compare against the corresponding minimum entry
+    for (i = 0; i < afl->queued_paths; i++) {
+      if (afl->queue_buf[i]->trace_mini) {
+        for (j = 0; j < afl->fsrv.map_size; j++) {
+          if (afl->queue_buf[i]->trace_mini[j >> 3] & (1 <<(j & 7))) {
+            if (!afl->edge_to_minimum_entry[j] || afl->queue_buf[i]->rand < afl->edge_to_minimum_entry[j]->rand) {
+              afl->edge_to_minimum_entry[j] = afl->queue_buf[i];
+            }
           }
-          potential_input = potential_input->next;
-        }
-
-        if (new_top_rated && !new_top_rated->favored) {
-          new_top_rated->favored = 1;
-          afl->queued_favored++;
-          if (!new_top_rated->was_fuzzed)
-            afl->pending_favored++;
         }
       }
     }
 
+    for (i = 0; i < afl->fsrv.map_size; i++) {
+      if (afl->edge_to_minimum_entry[i] && !afl->edge_to_minimum_entry[i]->favored) {
+        afl->edge_to_minimum_entry[i]->favored = 1;
+        afl->queued_favored++;
+        if (!afl->edge_to_minimum_entry[i]->was_fuzzed)
+          afl->pending_favored++;
+      }
+    }
   }
 
   for (i = 0; i < afl->queued_paths; i++) {
-
     if (likely(!afl->queue_buf[i]->disabled)) {
 
       mark_as_redundant(afl, afl->queue_buf[i], !afl->queue_buf[i]->favored);
