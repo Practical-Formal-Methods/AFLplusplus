@@ -600,7 +600,7 @@ void update_bitmap_score(afl_state_t *afl, struct queue_entry *q) {
 
         if (!--afl->top_rated[i]->tc_ref) {
           
-          // don't free it for now, need to usse this mini map to determine favored inputs later
+          // don't free it for now, need to use this mini map to determine favored inputs later
           // ck_free(afl->top_rated[i]->trace_mini);
           // afl->top_rated[i]->trace_mini = 0;
 
