@@ -165,7 +165,8 @@ struct queue_entry {
       favored,                          /* Currently favored?               */
       fs_redundant,                     /* Marked as redundant in the fs?   */
       is_ascii,                         /* Is the input just ascii text?    */
-      disabled;                         /* Is disabled from fuzz selection  */
+      disabled,                         /* Is disabled from fuzz selection  */
+      is_selected;
 
   u32 bitmap_size,                      /* Number of bits set in bitmap     */
       fuzz_level,                       /* Number of fuzzing iterations     */
@@ -174,7 +175,9 @@ struct queue_entry {
   u64 exec_us,                          /* Execution time (us)              */
       handicap,                         /* Number of queue cycles behind    */
       depth,                            /* Path depth                       */
-      exec_cksum;                       /* Checksum of the execution trace  */
+      exec_cksum,                       /* Checksum of the execution trace  */
+      rand,
+      num_fuzzed;
 
   u8 *trace_mini;                       /* Trace bytes, if kept             */
   u32 tc_ref;                           /* Trace bytes ref count            */
@@ -519,7 +522,12 @@ typedef struct afl_state {
       expand_havoc,                /* perform expensive havoc after no find */
       cycle_schedules,                  /* cycle power schedules?           */
       old_seed_selection,               /* use vanilla afl seed selection   */
-      reinit_table;                     /* reinit the queue weight table    */
+      reinit_table,                     /* reinit the queue weight table    */
+      disable_weighted_random_selection,
+      disable_random_favorites,
+      enable_uniformly_random_favorites,
+      disable_afl_default_favorites,
+      disable_randomized_fuzzing_params;
 
   u8 *virgin_bits,                      /* Regions yet untouched by fuzzing */
       *virgin_tmout,                    /* Bits we haven't seen in tmouts   */
@@ -750,6 +758,17 @@ typedef struct afl_state {
   /* Refs to each queue entry with cached testcase (for eviction, if cache_count
    * is too large) */
   struct queue_entry **q_testcase_cache;
+
+  int  randomize_parameters_prob;
+
+  /* list of fuzzing parameter constants found in config.h */
+  u32 custom_havoc_cycles;
+  u32 custom_havoc_stack_pow2;
+  u32 custom_havoc_blk_small;
+  u32 custom_havok_blk_medium;
+  u32 custom_havoc_blk_large;
+  u32 custom_splice_cycles;
+  u32 custom_splice_havoc;
 
 #ifdef INTROSPECTION
   char  mutation[8072];
@@ -1038,6 +1057,10 @@ void update_bitmap_score(afl_state_t *, struct queue_entry *);
 void cull_queue(afl_state_t *);
 u32  calculate_score(afl_state_t *, struct queue_entry *);
 
+/* random_params */
+u32 rand_int_in_range(afl_state_t * afl, int low, int high);
+double rand_double(afl_state_t * afl) ;
+
 /* Bitmap */
 
 void write_bitmap(afl_state_t *);
@@ -1104,6 +1127,8 @@ u8   pilot_fuzzing(afl_state_t *);
 u8   core_fuzzing(afl_state_t *);
 void pso_updating(afl_state_t *);
 u8   fuzz_one(afl_state_t *);
+void reset_fuzzing_params(afl_state_t * afl);
+void randomize_fuzzing_params(afl_state_t * afl);
 
 /* Init */
 

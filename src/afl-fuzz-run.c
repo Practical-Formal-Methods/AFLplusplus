@@ -921,6 +921,8 @@ common_fuzz_stuff(afl_state_t *afl, u8 *out_buf, u32 len) {
 
   fault = fuzz_run_target(afl, &afl->fsrv, afl->fsrv.exec_tmout);
 
+  afl->queue_cur->num_fuzzed++;
+
   if (afl->stop_soon) { return 1; }
 
   if (fault == FSRV_RUN_TMOUT) {
