@@ -639,8 +639,6 @@ typedef struct afl_state {
   struct extra_data *extras;            /* Extra tokens to fuzz with        */
   u32                extras_cnt;        /* Total number of tokens read      */
 
-  struct queue_entry* edge_to_minimum_entry[MAP_SIZE];
-
   struct auto_extra_data
       a_extras[MAX_AUTO_EXTRAS];        /* Automatically selected extras    */
   u32 a_extras_cnt;                     /* Total number of tokens available */

@@ -706,6 +706,7 @@ void cull_queue(afl_state_t *afl) {
     int r;
     int rid;
     double weight;
+    struct queue_entry **edge_to_minimum_entry = ck_alloc(sizeof(struct queue_entry) * afl->fsrv.map_size);
 
     for (i = 0; i < afl->queued_paths; i++) {
       weight = 1.0;
@@ -740,18 +741,14 @@ void cull_queue(afl_state_t *afl) {
 
       afl->queue_buf[i]->favored = 0;
       afl->queue_buf[i]->rand = rid;
-    }
 
-    // reset findings from the previous cycle
-    memset(afl->edge_to_minimum_entry, 0, afl->fsrv.map_size * sizeof(struct queue_entry));
-
-    // going through all entries, iteratvely check for covered edges and compare against the corresponding minimum entry
-    for (i = 0; i < afl->queued_paths; i++) {
+      // going through all entries, iteratively check for covered edges and compare against the corresponding minimum entry
       if (afl->queue_buf[i]->trace_mini) {
         for (j = 0; j < afl->fsrv.map_size; j++) {
           if (afl->queue_buf[i]->trace_mini[j >> 3] & (1 <<(j & 7))) {
-            if (!afl->edge_to_minimum_entry[j] || afl->queue_buf[i]->rand < afl->edge_to_minimum_entry[j]->rand) {
-              afl->edge_to_minimum_entry[j] = afl->queue_buf[i];
+            struct queue_entry* cur_entry = edge_to_minimum_entry[j];
+            if (!cur_entry || afl->queue_buf[i]->rand < cur_entry->rand) {
+              edge_to_minimum_entry[j] = afl->queue_buf[i];
             }
           }
         }
@@ -759,10 +756,11 @@ void cull_queue(afl_state_t *afl) {
     }
 
     for (i = 0; i < afl->fsrv.map_size; i++) {
-      if (afl->edge_to_minimum_entry[i] && !afl->edge_to_minimum_entry[i]->favored) {
-        afl->edge_to_minimum_entry[i]->favored = 1;
+      struct queue_entry* cur_entry = edge_to_minimum_entry[i];
+      if (cur_entry && !cur_entry->favored) {
+        cur_entry->favored = 1;
         afl->queued_favored++;
-        if (!afl->edge_to_minimum_entry[i]->was_fuzzed)
+        if (!cur_entry->was_fuzzed)
           afl->pending_favored++;
       }
     }
